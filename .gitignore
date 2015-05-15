@@ -11,3 +11,7 @@
 *.lai
 *.la
 *.a
+
+.DS_Store
+lua/lua.xcodeproj/project.xcworkspace/
+lua/lua.xcodeproj/xcuserdata/zhoubao.xcuserdatad/xcschemes/xcschememanagement.plist
