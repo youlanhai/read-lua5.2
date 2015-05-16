@@ -985,7 +985,7 @@ static void funcargs (LexState *ls, expdesc *f, int line)
 ** =======================================================================
 */
 
-
+//前缀表达式
 static void primaryexp (LexState *ls, expdesc *v)
 {
     /* primaryexp -> NAME | '(' expr ')' */
@@ -1012,7 +1012,7 @@ static void primaryexp (LexState *ls, expdesc *v)
     }
 }
 
-
+//后缀表达式
 static void suffixedexp (LexState *ls, expdesc *v)
 {
     /* suffixedexp ->
@@ -1121,7 +1121,7 @@ static void simpleexp (LexState *ls, expdesc *v)
     luaX_next(ls);
 }
 
-
+//单目运算符。token->opcode
 static UnOpr getunopr (int op)
 {
     switch (op)
@@ -1137,7 +1137,7 @@ static UnOpr getunopr (int op)
     }
 }
 
-
+//双目运算符。token->opcode
 static BinOpr getbinopr (int op)
 {
     switch (op)
@@ -1177,7 +1177,7 @@ static BinOpr getbinopr (int op)
     }
 }
 
-
+//运算符优先级
 static const struct
 {
     lu_byte left;  /* left priority for each binary operator */
@@ -1308,7 +1308,7 @@ static void check_conflict (LexState *ls, struct LHS_assign *lh, expdesc *v)
     }
 }
 
-
+//赋值表达式
 static void assignment (LexState *ls, struct LHS_assign *lh, int nvars)
 {
     expdesc e;
