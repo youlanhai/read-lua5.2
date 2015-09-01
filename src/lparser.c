@@ -167,7 +167,7 @@ static void init_exp (expdesc *e, expkind k, int i)
     e->u.info = i;
 }
 
-
+//生成常量表达式。
 static void codestring (LexState *ls, expdesc *e, TString *s)
 {
     init_exp(e, VK, luaK_stringK(ls->fs, s));
@@ -270,7 +270,7 @@ static int newupvalue (FuncState *fs, TString *name, expdesc *v)
     return fs->nups++;
 }
 
-
+//在当前的函数中查找变量。如果找到，返回它在数组中索引；否则返回-1。
 static int searchvar (FuncState *fs, TString *n)
 {
     int i;
@@ -282,7 +282,7 @@ static int searchvar (FuncState *fs, TString *n)
     return -1;  /* not found */
 }
 
-
+//将该变量标记为upvalue。
 /*
   Mark block where variable at given level was defined
   (to emit close instructions later).
@@ -294,7 +294,8 @@ static void markupval (FuncState *fs, int level)
     bl->upval = 1;
 }
 
-
+//查找指定的变量。如果变量是一个upvalue，将此upvalue添加给所有的中间函数中。
+//也就是说，从当前函数到upvalue所在函数，中间所经过的任何函数，都需要记录这个upvalue。
 /*
   Find variable with given name 'n'. If it is an upvalue, add this
   upvalue into all intermediate functions.
@@ -302,7 +303,9 @@ static void markupval (FuncState *fs, int level)
 static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base)
 {
     if (fs == NULL)  /* no more levels? */
+    {//没有找到该变量，那么它应该是一个全局变量。
         return VVOID;  /* default is global */
+    }
     else
     {
         int v = searchvar(fs, n);  /* look up locals at current level */
@@ -318,8 +321,10 @@ static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base)
             int idx = searchupvalue(fs, n);  /* try existing upvalues */
             if (idx < 0)    /* not found? */
             {
+                //去上一层查找
                 if (singlevaraux(fs->prev, n, var, 0) == VVOID) /* try upper levels */
                     return VVOID;  /* not found; is a global */
+                //这是一个新的upvalue
                 /* else was LOCAL or UPVAL */
                 idx  = newupvalue(fs, n, var);  /* will be a new upvalue */
             }
@@ -329,14 +334,15 @@ static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base)
     }
 }
 
-
+//解析单个变量。生成local变量，或者upvalue变量。
 static void singlevar (LexState *ls, expdesc *var)
 {
     TString *varname = str_checkname(ls);
     FuncState *fs = ls->fs;
     if (singlevaraux(fs, varname, var, 1) == VVOID)    /* global name? */
-    {
+    {//这是一个全局变量
         expdesc key;
+        //查找"_ENV"变量，此变量必然存在。
         singlevaraux(fs, ls->envn, var, 1);  /* get environment variable */
         lua_assert(var->k == VLOCAL || var->k == VUPVAL);
         codestring(ls, &key, varname);  /* key is variable name */
@@ -985,7 +991,7 @@ static void funcargs (LexState *ls, expdesc *f, int line)
 ** =======================================================================
 */
 
-//前缀表达式
+//主表达式
 static void primaryexp (LexState *ls, expdesc *v)
 {
     /* primaryexp -> NAME | '(' expr ')' */
@@ -1000,9 +1006,9 @@ static void primaryexp (LexState *ls, expdesc *v)
         luaK_dischargevars(ls->fs, v);
         return;
     }
-    case TK_NAME:
+    case TK_NAME: //表达式是一个标示符
     {
-        singlevar(ls, v);
+        singlevar(ls, v); //查找/添加标示符
         return;
     }
     default:
@@ -1049,7 +1055,7 @@ static void suffixedexp (LexState *ls, expdesc *v)
         case '(':
         case TK_STRING:
         case '{':    /* funcargs */
-        {
+        {//函数调用
             luaK_exp2nextreg(fs, v);
             funcargs(ls, v, line);
             break;
@@ -1683,7 +1689,7 @@ static int funcname (LexState *ls, expdesc *v)
     return ismethod;
 }
 
-
+//分析函数语句。function xxx
 static void funcstat (LexState *ls, int line)
 {
     /* funcstat -> FUNCTION funcname body */
@@ -1696,7 +1702,7 @@ static void funcstat (LexState *ls, int line)
     luaK_fixline(ls->fs, line);  /* definition `happens' in the first line */
 }
 
-
+//分析表达式语句。表达式要么是赋值语句，要么是函数调用
 static void exprstat (LexState *ls)
 {
     /* stat -> func | assignment */
@@ -1704,7 +1710,7 @@ static void exprstat (LexState *ls)
     struct LHS_assign v;
     suffixedexp(ls, &v.v);
     if (ls->t.token == '=' || ls->t.token == ',')   /* stat -> assignment ? */
-    {
+    {//a = b; a, b = c, d
         v.prev = NULL;
         assignment(ls, &v, 1);
     }

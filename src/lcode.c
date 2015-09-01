@@ -355,7 +355,7 @@ static int addk (FuncState *fs, TValue *key, TValue *v)
     return k;
 }
 
-
+//在常量表中查找字符串。如果字符串不存在，将其添加到常量表。
 int luaK_stringK (FuncState *fs, TString *s)
 {
     TValue o;
@@ -825,7 +825,7 @@ static void codenot (FuncState *fs, expdesc *e)
     removevalues(fs, e->t);
 }
 
-
+//生成指令：在t中索引k。
 void luaK_indexed (FuncState *fs, expdesc *t, expdesc *k)
 {
     lua_assert(!hasjumps(t));

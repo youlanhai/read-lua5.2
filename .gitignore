@@ -15,3 +15,6 @@
 .DS_Store
 lua/lua.xcodeproj/project.xcworkspace/
 lua/lua.xcodeproj/xcuserdata/
+lua/Build/
+lua/Debug/
+lua/Release/

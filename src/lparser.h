@@ -15,7 +15,7 @@
 /*
 ** Expression descriptor
 */
-
+//表达式类型
 typedef enum
 {
     VVOID,	/* no value */
@@ -38,6 +38,7 @@ typedef enum
 #define vkisvar(k)	(VLOCAL <= (k) && (k) <= VINDEXED)
 #define vkisinreg(k)	((k) == VNONRELOC || (k) == VLOCAL)
 
+//表达式描述
 typedef struct expdesc
 {
     expkind k;
@@ -45,8 +46,11 @@ typedef struct expdesc
     {
         struct    /* for indexed variables (VINDEXED) */
         {
+            //table的索引
             short idx;  /* index (R/K) */
+            //table所在的寄存器或者upvalue
             lu_byte t;  /* table (register or upvalue) */
+            //vt表示t是寄存器还是upvalue
             lu_byte vt;  /* whether 't' is register (VLOCAL) or upvalue (VUPVAL) */
         } ind;
         int info;  /* for generic use */
