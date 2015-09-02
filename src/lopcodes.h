@@ -9,6 +9,17 @@
 
 #include "llimits.h"
 
+/*
+假设指令是32位无符号整数。所有指令前6位（低字节）是操作码。每个指令有以下字段：
+    A: 8位
+    B: 9位
+    C: 9位
+    Ax: 26位（也就是A,B,C凑到一起）
+    Bx: 18位（B和C凑到一起）
+    sBx: 有符号的Bx
+一个有符号数用大于K的方式来表示。也就是说，真实的数值(s) = 无符号数(u) - K。K是该整型类型最大数的一半。
+例如：0 = K - K; 1 = (K + 1) - K; -1 = (K - 1) - K;
+*/
 
 /*===========================================================================
   We assume that instructions are unsigned numbers.
@@ -152,9 +163,9 @@ enum OpMode {iABC, iABx, iAsBx, iAx};  /* basic instruction format */
 
 
 /*
-** R(x) - register
-** Kst(x) - constant (in constant table)
-** RK(x) == if ISK(x) then Kst(INDEXK(x)) else R(x)
+** R(x) - register 寄存器，x为寄存器数组的索引
+** Kst(x) - constant (in constant table) 常量寄存器，x为常量数组的索引。
+** RK(x) == if ISK(x) then Kst(INDEXK(x)) else R(x) 如果x是常量索引，返回常量值；否则返回寄存器值。
 */
 
 

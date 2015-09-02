@@ -1018,7 +1018,7 @@ static void primaryexp (LexState *ls, expdesc *v)
     }
 }
 
-//后缀表达式
+//分析表达式的开头部分。可能是等号左侧变量，也可能是函数
 static void suffixedexp (LexState *ls, expdesc *v)
 {
     /* suffixedexp ->
