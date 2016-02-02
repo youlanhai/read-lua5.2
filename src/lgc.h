@@ -93,11 +93,14 @@
 #define OLDBIT		6  /* object is old (only in generational mode) */
 /* bit 7 is currently used by tests (luaL_checkmemory) */
 
+//白色掩码0b011，包括当前白色和老白色
 #define WHITEBITS	bit2mask(WHITE0BIT, WHITE1BIT)
 
-
+//0bx11
 #define iswhite(x)      testbits((x)->gch.marked, WHITEBITS)
+//0b1xx
 #define isblack(x)      testbit((x)->gch.marked, BLACKBIT)
+//是否是灰色。既不是白色，也不是黑色的。即0b000
 #define isgray(x)  /* neither white nor black */  \
 	(!testbits((x)->gch.marked, WHITEBITS | bitmask(BLACKBIT)))
 

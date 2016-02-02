@@ -71,10 +71,17 @@
 #define checkconsistency(obj)  \
   lua_longassert(!iscollectable(obj) || righttt(obj))
 
-
+/*  将白色的值（TValue类型）标记为灰色或者黑色。
+    等价于：
+    void markvalue(global_State *g, TValue *o);
+ */
 #define markvalue(g,o) { checkconsistency(o); \
   if (valiswhite(o)) reallymarkobject(g,gcvalue(o)); }
 
+/* 将白色的gc对象标记为灰色或者黑色。
+   等价于：
+    void markobject(global_State *g, GCObject *t);
+ */
 #define markobject(g,t) { if ((t) && iswhite(obj2gco(t))) \
 		reallymarkobject(g, obj2gco(t)); }
 
@@ -93,13 +100,16 @@ static void reallymarkobject (global_State *g, GCObject *o);
 */
 #define gnodelast(h)	gnode(h, cast(size_t, sizenode(h)))
 
-
+//将table 'h'连接到'p'所指向的链表上
 /*
 ** link table 'h' into list pointed by 'p'
 */
 #define linktable(h,p)	((h)->gclist = *(p), *(p) = obj2gco(h))
 
 
+/** 删除Table中的key。空节点就是value是nil的结点。
+ *  如果key没有被标记过，则将key标记为dead（也就是说将会从表中删除）
+ */
 /*
 ** if key is not marked, mark its entry as dead (therefore removing it
 ** from the table)
@@ -111,7 +121,11 @@ static void removeentry (Node *n)
         setdeadvalue(gkey(n));  /* unused and unmarked key; remove it */
 }
 
-
+/** 判断一个Table的key或者value是否可以从弱表中清除。
+ *  不可回收的对象永远不会从弱表中删除。
+ *  字符串的行为跟普通变量一样，永远也不会被删除。
+ *  对于其他对象：如果可以被回收，就不用保留他们；如果即将被释放了，如果是key则保留，value就不用管。
+ */
 /*
 ** tells whether a key or value can be cleared from a weak
 ** table. Non-collectable objects are never removed from weak
@@ -247,7 +261,10 @@ GCObject *luaC_newobj (lua_State *L, int tt, size_t sz, GCObject **list,
 ** =======================================================
 */
 
-
+/*标记一个对象。
+ 此处将userdata，字符串，closed upvalues标记为黑色。
+ 其他对象标记为灰色，然后添加到合适的链表中，等待随后遍历。
+ */
 /*
 ** mark an object. Userdata, strings, and closed upvalues are visited
 ** and turned black here. Other objects are marked gray and added
@@ -257,7 +274,7 @@ GCObject *luaC_newobj (lua_State *L, int tt, size_t sz, GCObject **list,
 static void reallymarkobject (global_State *g, GCObject *o)
 {
     lu_mem size;
-    white2gray(o);
+    white2gray(o); //将白色位设置成灰色（0,0）
     switch (gch(o)->tt)
     {
     case LUA_TSHRSTR:
@@ -285,6 +302,7 @@ static void reallymarkobject (global_State *g, GCObject *o)
     }
     case LUA_TLCL:
     {
+        //连接到灰色链表
         gco2lcl(o)->gclist = g->gray;
         g->gray = o;
         return;
@@ -297,6 +315,7 @@ static void reallymarkobject (global_State *g, GCObject *o)
     }
     case LUA_TTABLE:
     {
+        //将table链接到灰色链表中
         linktable(gco2t(o), &g->gray);
         return;
     }
@@ -320,7 +339,7 @@ static void reallymarkobject (global_State *g, GCObject *o)
     g->GCmemtrav += size;
 }
 
-
+//标记基础类型的metatable
 /*
 ** mark metamethods for basic types
 */
@@ -360,7 +379,8 @@ static void remarkupvals (global_State *g)
     }
 }
 
-
+/** 重新开始收集。重置灰色链表，重新标记根集合。
+ */
 /*
 ** mark root set and reset all gray lists, to start a new
 ** incremental (or full) collection
@@ -384,9 +404,13 @@ static void restartcollection (global_State *g)
 ** =======================================================
 */
 
+/** 遍历弱值表（value是弱引用）。
+ *  @see traversestrongtable
+ */
 static void traverseweakvalue (global_State *g, Table *h)
 {
     Node *n, *limit = gnodelast(h);
+    //如果有数组部分，就直接假设存在白色的值，不用做遍历
     /* if there is array part, assume it may have white values (do not
        traverse it just to check) */
     int hasclears = (h->sizearray > 0);
@@ -399,28 +423,35 @@ static void traverseweakvalue (global_State *g, Table *h)
         {
             lua_assert(!ttisnil(gkey(n)));
             markvalue(g, gkey(n));  /* mark key */
+            //对value不用做标记，直接检查是否可以被清除。
             if (!hasclears && iscleared(g, gval(n)))  /* is there a white value? */
                 hasclears = 1;  /* table will have to be cleared */
         }
     }
     if (hasclears)
-        linktable(h, &g->weak);  /* has to be cleared later */
+        linktable(h, &g->weak);  /* has to be cleared later */ //稍候执行清除
     else  /* no white values */
-        linktable(h, &g->grayagain);  /* no need to clean */
+        linktable(h, &g->grayagain);  /* no need to clean */ //不用清除
 }
 
-
+/** 遍历弱key表（key是弱引用）
+ *  @see traversestrongtable
+ */
 static int traverseephemeron (global_State *g, Table *h)
 {
+    // 是否存在白色的value。
     int marked = 0;  /* true if an object is marked in this traversal */
+    // 是否存在白色key。
     int hasclears = 0;  /* true if table has white keys */
+    // 是否有“白色的key->白色的value”存在
     int prop = 0;  /* true if table has entry "white-key -> white-value" */
+    
     Node *n, *limit = gnodelast(h);
     int i;
     /* traverse array part (numeric keys are 'strong') */
     for (i = 0; i < h->sizearray; i++)
     {
-        if (valiswhite(&h->array[i]))
+        if (valiswhite(&h->array[i])) //标记value
         {
             marked = 1;
             reallymarkobject(g, gcvalue(&h->array[i]));
@@ -440,6 +471,7 @@ static int traverseephemeron (global_State *g, Table *h)
         }
         else if (valiswhite(gval(n)))    /* value not marked yet? */
         {
+            //标记value
             marked = 1;
             reallymarkobject(g, gcvalue(gval(n)));  /* mark it now */
         }
@@ -453,16 +485,20 @@ static int traverseephemeron (global_State *g, Table *h)
     return marked;
 }
 
-
+/** 遍历一个强引用的Table。没有设置过弱属性的Table，都是强引用。
+ */
 static void traversestrongtable (global_State *g, Table *h)
 {
     Node *n, *limit = gnodelast(h);
     int i;
+    //遍历数组部分
     for (i = 0; i < h->sizearray; i++)  /* traverse array part */
         markvalue(g, &h->array[i]);
+    //遍历哈希部分。hash表内部容器是是个数组，从数组第0个结点，遍历到最后一个。
     for (n = gnode(h, 0); n < limit; n++)    /* traverse hash part */
     {
         checkdeadkey(n);
+        //如果value是nil，表示是一个空的结点，直接删掉。如果key是nil，表示此位置没有被使用，删除过程会自动跳过。
         if (ttisnil(gval(n)))  /* entry is empty? */
             removeentry(n);  /* remove it */
         else
@@ -474,12 +510,16 @@ static void traversestrongtable (global_State *g, Table *h)
     }
 }
 
-
+/** 遍历Table。
+ *  Table分成3种：强引用表，弱值表，弱key表，全弱表。
+ *  @see traversestrongtable traverseweakvalue traverseephemeron
+ */
 static lu_mem traversetable (global_State *g, Table *h)
 {
     const char *weakkey, *weakvalue;
     const TValue *mode = gfasttm(g, h->metatable, TM_MODE);
     markobject(g, h->metatable);
+    //判断是否是弱表
     if (mode && ttisstring(mode) &&  /* is there a weak mode? */
             ((weakkey = strchr(svalue(mode), 'k')),
              (weakvalue = strchr(svalue(mode), 'v')),
@@ -565,7 +605,9 @@ static lu_mem traversestack (global_State *g, lua_State *th)
            sizeof(CallInfo) * n;
 }
 
-
+/** 开始标记。
+ *  处理一个灰色对象，将他变成黑色，从灰色链表上删掉，然后标记他所有引用的子对象。
+ */
 /*
 ** traverse one gray object, turning it to black (except for threads,
 ** which are always gray).
@@ -581,6 +623,7 @@ static void propagatemark (global_State *g)
     case LUA_TTABLE:
     {
         Table *h = gco2t(o);
+        //h->gclist指向了灰色链表头部。g->gray = h, h->gclist = next h
         g->gray = h->gclist;  /* remove from 'gray' list */
         size = traversetable(g, h);
         break;
@@ -623,13 +666,13 @@ static void propagatemark (global_State *g)
     g->GCmemtrav += size;
 }
 
-
+/** 处理所有灰色链表。*/
 static void propagateall (global_State *g)
 {
     while (g->gray) propagatemark(g);
 }
 
-
+/** 处理一个其他的灰色链表。*/
 static void propagatelist (global_State *g, GCObject *l)
 {
     lua_assert(g->gray == NULL);  /* no grays left */
@@ -637,6 +680,9 @@ static void propagatelist (global_State *g, GCObject *l)
     propagateall(g);  /* traverse all elements from 'l' */
 }
 
+/** 遍历所有灰色链表。由于在遍历的过程中，可能会向其他表中插入Table，
+ *  因此遍历最初得到的链表来避免对同一个table遍历多次。（遍历多次不会影响结果，但是影响效率）
+ */
 /*
 ** retraverse all gray lists. Because tables may be reinserted in other
 ** lists when traversed, traverse the original lists to avoid traversing
