@@ -732,7 +732,7 @@ static void convergeephemerons (global_State *g)
 ** =======================================================
 */
 
-
+/** 清除弱表中所有没有被标记的key。*/
 /*
 ** clear entries with unmarked keys from all weaktables in list 'l' up
 ** to element 'f'
@@ -754,7 +754,7 @@ static void clearkeys (global_State *g, GCObject *l, GCObject *f)
     }
 }
 
-
+/** 清除弱表中所有没有被标记的值。*/
 /*
 ** clear entries with unmarked values from all weaktables in list 'l' up
 ** to element 'f'
@@ -783,7 +783,7 @@ static void clearvalues (global_State *g, GCObject *l, GCObject *f)
     }
 }
 
-
+/** 释放对象。*/
 static void freeobj (lua_State *L, GCObject *o)
 {
     switch (gch(o)->tt)
@@ -845,7 +845,12 @@ static void sweepthread (lua_State *L, lua_State *L1)
         luaD_shrinkstack(L1);
 }
 
-
+/** 从GCObjects链表中，清除最多‘count’个dead元素。dead元素是指一个被标记为“旧”白色，
+ *  且不是固定的对象。
+ *  在“非隔代”模式下，将所有没有死亡的对象从黑色变为白色，为下一轮收集做准备。
+ *  在“隔代”模式下，将黑色对象保持为黑色，并将他们标记为“old”状态；在遇到“老”对象的时候，
+ *  停止遍历，因为他之后的所有对象都是老的。
+ */
 /*
 ** sweep at most 'count' elements from a list of GCObjects erasing dead
 ** objects, where a dead (not alive) object is one marked with the "old"
@@ -879,6 +884,7 @@ static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count)
     {
         GCObject *curr = *p;
         int marked = gch(curr)->marked;
+        //old white标记的对象可以被删除
         if (isdeadm(ow, marked))    /* is 'curr' dead? */
         {
             *p = gch(curr)->next;  /* remove 'curr' from list */
