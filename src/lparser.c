@@ -334,7 +334,7 @@ static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base)
     }
 }
 
-//解析单个变量。生成local变量，或者upvalue变量。
+/** 解析单个变量。生成local变量，或者upvalue变量。*/
 static void singlevar (LexState *ls, expdesc *var)
 {
     TString *varname = str_checkname(ls);
@@ -991,7 +991,7 @@ static void funcargs (LexState *ls, expdesc *f, int line)
 ** =======================================================================
 */
 
-//主表达式
+/** 主表达式。可以是一个变量，或者是括号括起来的表达式*/
 static void primaryexp (LexState *ls, expdesc *v)
 {
     /* primaryexp -> NAME | '(' expr ')' */
@@ -1018,7 +1018,7 @@ static void primaryexp (LexState *ls, expdesc *v)
     }
 }
 
-//分析表达式的开头部分。可能是等号左侧变量，也可能是函数
+/**分析表达式的开头部分。可能是等号左侧变量，也可能是函数*/
 static void suffixedexp (LexState *ls, expdesc *v)
 {
     /* suffixedexp ->
