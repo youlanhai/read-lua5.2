@@ -1018,7 +1018,7 @@ static void primaryexp (LexState *ls, expdesc *v)
     }
 }
 
-/**分析表达式的开头部分。可能是等号左侧变量，也可能是函数*/
+/**分析表达式的开头部分。可能是等号左侧变量，也可能是函数调用*/
 static void suffixedexp (LexState *ls, expdesc *v)
 {
     /* suffixedexp ->
@@ -1066,7 +1066,7 @@ static void suffixedexp (LexState *ls, expdesc *v)
     }
 }
 
-
+//简单表达式。数字，字符串，nil，true，false，...，Table构造器{}，函数function，后缀表达式(如：a.b[c])
 static void simpleexp (LexState *ls, expdesc *v)
 {
     /* simpleexp -> NUMBER | STRING | NIL | TRUE | FALSE | ... |
@@ -1120,6 +1120,7 @@ static void simpleexp (LexState *ls, expdesc *v)
     }
     default:
     {
+        //a.b[c]格式表达式
         suffixedexp(ls, v);
         return;
     }
@@ -1127,7 +1128,7 @@ static void simpleexp (LexState *ls, expdesc *v)
     luaX_next(ls);
 }
 
-//单目运算符。token->opcode
+//token转成单目运算符。token->opcode
 static UnOpr getunopr (int op)
 {
     switch (op)
@@ -1143,7 +1144,7 @@ static UnOpr getunopr (int op)
     }
 }
 
-//双目运算符。token->opcode
+//token转成双目运算符。token->opcode
 static BinOpr getbinopr (int op)
 {
     switch (op)
@@ -1183,7 +1184,9 @@ static BinOpr getbinopr (int op)
     }
 }
 
-//运算符优先级
+/**运算符优先级。运算符在左侧的优先级，出现在右侧的优先级。
+ 通常情况下，同一个运算符，出现在左侧和右侧的优先级相同。
+*/
 static const struct
 {
     lu_byte left;  /* left priority for each binary operator */
@@ -1200,6 +1203,8 @@ static const struct
 #define UNARY_PRIORITY	8  /* priority for unary operators */
 
 
+//解析子表达式（算术或逻辑表达式）。子表达式 = 简单表达式(不含运算符表达式) | 一元表达式 | 二元表达式
+//解析二元运算符大于limit的表达式
 /*
 ** subexpr -> (simpleexp | unop subexpr) { binop subexpr }
 ** where `binop' is any binary operator with a priority higher than `limit'
@@ -1211,13 +1216,17 @@ static BinOpr subexpr (LexState *ls, expdesc *v, int limit)
     enterlevel(ls);
     uop = getunopr(ls->t.token);
     if (uop != OPR_NOUNOPR)
-    {
+    {//一元表达式
         int line = ls->linenumber;
         luaX_next(ls);
         subexpr(ls, v, UNARY_PRIORITY);
         luaK_prefix(ls->fs, uop, v, line);
     }
-    else simpleexp(ls, v);
+    else
+    {
+        simpleexp(ls, v);
+    }
+    
     /* expand while operators have priorities higher than `limit' */
     op = getbinopr(ls->t.token);
     while (op != OPR_NOBINOPR && priority[op].left > limit)
@@ -1263,7 +1272,7 @@ static void block (LexState *ls)
     leaveblock(fs);
 }
 
-
+//链接所有左值变量。lua支持多个变量同时赋值。
 /*
 ** structure to chain all variables in the left-hand side of an
 ** assignment

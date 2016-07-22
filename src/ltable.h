@@ -27,6 +27,7 @@ LUAI_FUNC void luaH_setint (lua_State *L, Table *t, int key, TValue *value);
 LUAI_FUNC const TValue *luaH_getstr (Table *t, TString *key);
 LUAI_FUNC const TValue *luaH_get (Table *t, const TValue *key);
 LUAI_FUNC TValue *luaH_newkey (lua_State *L, Table *t, const TValue *key);
+// Table插入key。如果key已经存在，直接返回其位置。否则新建一个节点，并返回位置。
 LUAI_FUNC TValue *luaH_set (lua_State *L, Table *t, const TValue *key);
 LUAI_FUNC Table *luaH_new (lua_State *L);
 LUAI_FUNC void luaH_resize (lua_State *L, Table *t, int nasize, int nhsize);

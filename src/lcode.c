@@ -234,15 +234,19 @@ void luaK_concat (FuncState *fs, int *l1, int l2)
     }
 }
 
-
+// 存贮指令
 static int luaK_code (FuncState *fs, Instruction i)
 {
     Proto *f = fs->f;
     dischargejpc(fs);  /* `pc' will change */
+    
+    // 存贮指令
     /* put new instruction in code array */
     luaM_growvector(fs->ls->L, f->code, fs->pc, f->sizecode, Instruction,
                     MAX_INT, "opcodes");
     f->code[fs->pc] = i;
+    
+    // 存贮行号信息
     /* save corresponding line information */
     luaM_growvector(fs->ls->L, f->lineinfo, fs->pc, f->sizelineinfo, int,
                     MAX_INT, "opcodes");
@@ -905,6 +909,7 @@ void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e, int line)
     {
     case OPR_MINUS:
     {
+        //数值常量，直接计算出结果
         if (isnumeral(e))  /* minus constant? */
             e->u.nval = luai_numunm(NULL, e->u.nval);  /* fold it */
         else

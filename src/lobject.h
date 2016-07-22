@@ -453,8 +453,8 @@ typedef union Udata
 typedef struct Upvaldesc
 {
     TString *name;  /* upvalue name (for debug information) */
-    lu_byte instack;  /* whether it is in stack */
-    lu_byte idx;  /* index of upvalue (in stack or in outer function's list) */
+    lu_byte instack; // 变量是否在当前堆栈中。如果不在，就需要向上一层函数堆栈中查找。  /* whether it is in stack */
+    lu_byte idx; // 如果变量在当前栈中，则表示当前栈中的索引。否则表示所引用的栈中的索引。  /* index of upvalue (in stack or in outer function's list) */
 } Upvaldesc;
 
 
@@ -464,9 +464,10 @@ typedef struct Upvaldesc
 */
 typedef struct LocVar
 {
-    TString *varname;
-    int startpc;  /* first point where variable is active */
-    int endpc;    /* first point where variable is dead */
+    TString *varname; //变量名称
+    // 变量的作用域范围
+    int startpc; // 激活位置  /* first point where variable is active */
+    int endpc;   // 销毁位置 /* first point where variable is dead */
 } LocVar;
 
 
@@ -476,16 +477,16 @@ typedef struct LocVar
 typedef struct Proto
 {
     CommonHeader;
-    TValue *k;  /* constants used by the function */
-    Instruction *code;
-    struct Proto **p;  /* functions defined inside the function */
-    int *lineinfo;  /* map from opcodes to source lines (debug information) */
-    LocVar *locvars;  /* information about local variables (debug information) */
-    Upvaldesc *upvalues;  /* upvalue information */
+    TValue *k; //当前函数用到的常量（数组）。  /* constants used by the function */
+    Instruction *code; // 代码指令（数组）。
+    struct Proto **p; // 内嵌函数列表（数组）  /* functions defined inside the function */
+    int *lineinfo;  //指令对应的行号(数组)。用于调试。 /* map from opcodes to source lines (debug information) */
+    LocVar *locvars; //局部变量的信息（数组）。用于调试。 /* information about local variables (debug information) */
+    Upvaldesc *upvalues; //(数组) /* upvalue information */
     union Closure *cache;  /* last created closure with this prototype */
     TString  *source;  /* used for debug information */
-    int sizeupvalues;  /* size of 'upvalues' */
-    int sizek;  /* size of `k' */
+    int sizeupvalues; // upvalues的数量。  /* size of 'upvalues' */
+    int sizek; // 常量数组的长度。 /* size of `k' */
     int sizecode;
     int sizelineinfo;
     int sizep;  /* size of `p' */
@@ -493,9 +494,9 @@ typedef struct Proto
     int linedefined;
     int lastlinedefined;
     GCObject *gclist;
-    lu_byte numparams;  /* number of fixed parameters */
-    lu_byte is_vararg;
-    lu_byte maxstacksize;  /* maximum stack used by this function */
+    lu_byte numparams; // 固定参数的个数  /* number of fixed parameters */
+    lu_byte is_vararg; // 是否有可变参数。
+    lu_byte maxstacksize; // 当前函数使用到得最大栈大小。  /* maximum stack used by this function */
 } Proto;
 
 
