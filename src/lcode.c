@@ -66,7 +66,7 @@ int luaK_jump (FuncState *fs)
     int jpc = fs->jpc;  /* save list of jumps to here */
     int j;
     fs->jpc = NO_JUMP;
-    j = luaK_codeAsBx(fs, OP_JMP, 0, NO_JUMP);
+    j = luaK_codeAsBx(fs, OP_JMP, 0, NO_JUMP); // 生成指令，并返回指令的地址
     luaK_concat(fs, &j, jpc);  /* keep them on hold */
     return j;
 }
@@ -84,11 +84,11 @@ static int condjump (FuncState *fs, OpCode op, int A, int B, int C)
     return luaK_jump(fs);
 }
 
-
+/** 修正跳转指令。*/
 static void fixjump (FuncState *fs, int pc, int dest)
 {
     Instruction *jmp = &fs->f->code[pc];
-    int offset = dest - (pc + 1);
+    int offset = dest - (pc + 1); // 绝对地址转换为相对地址
     lua_assert(dest != NO_JUMP);
     if (abs(offset) > MAXARG_sBx)
         luaX_syntaxerror(fs->ls, "control structure too long");
@@ -106,13 +106,14 @@ int luaK_getlabel (FuncState *fs)
     return fs->pc;
 }
 
-
+/** 获得pc位置指令的跳转目标位置。*/
 static int getjump (FuncState *fs, int pc)
 {
     int offset = GETARG_sBx(fs->f->code[pc]);
     if (offset == NO_JUMP)  /* point to itself represents end of list */
         return NO_JUMP;  /* end of list */
     else
+        // 将跳转偏移转换成绝对位置
         return (pc + 1) + offset; /* turn offset into absolute position */
 }
 
@@ -211,7 +212,7 @@ LUAI_FUNC void luaK_patchclose (FuncState *fs, int list, int level)
     }
 }
 
-
+/** 将`list`连接到jpc链表尾部。*/
 void luaK_patchtohere (FuncState *fs, int list)
 {
     luaK_getlabel(fs);
@@ -219,11 +220,12 @@ void luaK_patchtohere (FuncState *fs, int list)
 }
 
 
+/** 连接待定的跳转指令。将l2连接到l1上，即jpc->l1->l2*/
 void luaK_concat (FuncState *fs, int *l1, int l2)
 {
     if (l2 == NO_JUMP) return;
     else if (*l1 == NO_JUMP)
-        *l1 = l2;
+        *l1 = l2; //将l2连接到l1上
     else
     {
         int list = *l1;
@@ -434,7 +436,7 @@ void luaK_setoneret (FuncState *fs, expdesc *e)
     }
 }
 
-
+// 释放变量
 void luaK_dischargevars (FuncState *fs, expdesc *e)
 {
     switch (e->k)
@@ -720,7 +722,9 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond)
     return condjump(fs, OP_TESTSET, NO_REG, e->u.info, cond);
 }
 
-
+/** 如果条件成立，就继续向下执行，否则跳转到指定地址。
+ *  @param e 最近一次的表达式结果
+ */
 void luaK_goiftrue (FuncState *fs, expdesc *e)
 {
     int pc;  /* pc of last jump */
@@ -737,6 +741,7 @@ void luaK_goiftrue (FuncState *fs, expdesc *e)
     case VKNUM:
     case VTRUE:
     {
+        //这些值始终是true，没必要生成跳转指令了
         pc = NO_JUMP;  /* always true; do nothing */
         break;
     }

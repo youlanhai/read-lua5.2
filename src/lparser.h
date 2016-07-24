@@ -22,13 +22,13 @@ typedef enum
     VNIL,
     VTRUE,
     VFALSE,
-    VK,		/* info = index of constant in `k' */
-    VKNUM,	/* nval = numerical value */
-    VNONRELOC,	/* info = result register */
-    VLOCAL,	/* info = local register */
-    VUPVAL,       /* info = index of upvalue in 'upvalues' */
+    VK,		//常量表k中的索引 /* info = index of constant in `k' */
+    VKNUM,	//数值 /* nval = numerical value */
+    VNONRELOC,	//结果寄存器 /* info = result register */
+    VLOCAL,	//局部寄存器 /* info = local register */
+    VUPVAL,   // upvalue /* info = index of upvalue in 'upvalues' */
     VINDEXED,	/* t = table register/upvalue; idx = index R/K */
-    VJMP,		/* info = instruction pc */
+    VJMP,       //info存放的跳转地址 /* info = instruction pc */
     VRELOCABLE,	/* info = instruction pc */
     VCALL,	/* info = instruction pc */
     VVARARG	/* info = instruction pc */
@@ -64,6 +64,7 @@ typedef struct expdesc
 /* description of active local variable */
 typedef struct Vardesc
 {
+    // 变量在‘局部变量栈’中的索引
     short idx;  /* variable index in stack */
 } Vardesc;
 
@@ -86,15 +87,15 @@ typedef struct Labellist
     int size;  /* array size */
 } Labellist;
 
-
+/** 动态数据。存放当前编译单元（整个文件）的所有激活的局部变量。*/
 /* dynamic structures used by the parser */
 typedef struct Dyndata
 {
     struct    /* list of active local variables */
     {
         Vardesc *arr;
-        int n;
-        int size;
+        int n; //使用中的数量
+        int size; //arr的总长度
     } actvar;
     Labellist gt;  /* list of pending gotos */
     Labellist label;   /* list of active labels */
@@ -110,17 +111,22 @@ typedef struct FuncState
 {
     Proto *f;  /* current function header */
     Table *h;  /* table to find (and reuse) elements in `k' */
-    struct FuncState *prev;  /* enclosing function */
+    struct FuncState *prev; //闭包函数。即，外层函数。  /* enclosing function */
     struct LexState *ls;  /* lexical state */
     struct BlockCnt *bl;  /* chain of current blocks */
     int pc;  /* next position to code (equivalent to `ncode') */
     int lasttarget;   /* 'label' of last 'jump label' */
-    int jpc;  /* list of pending jumps to `pc' */
+    int jpc; //待定的跳转链表 /* list of pending jumps to `pc' */
     int nk;  /* number of elements in `k' */
     int np;  /* number of elements in `p' */
-    int firstlocal;  /* index of first local var (in Dyndata array) */
+    
+    /** 第一个局部变量在Lex动态数组中的偏移位置*/
+    int firstlocal;   /* index of first local var (in Dyndata array) */
+    /** 所有局部变量的数量*/
     short nlocvars;  /* number of elements in 'f->locvars' */
+    /** 活动状态的局部变量数量*/
     lu_byte nactvar;  /* number of active local variables */
+    
     lu_byte nups;  /* number of upvalues */
     lu_byte freereg;  /* first free register */
 } FuncState;

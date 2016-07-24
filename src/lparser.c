@@ -179,7 +179,10 @@ static void checkname (LexState *ls, expdesc *e)
     codestring(ls, e, str_checkname(ls));
 }
 
-
+/** 向当前函数中存贮一个局部变量。
+ *  <br/>‘局部变量数组’记录了当前**函数**的所有局部变量信息，包括激活的和非激活的。用于调试目的。
+ *  <br/>局部变量信息：名称，作用域
+ */
 static int registerlocalvar (LexState *ls, TString *varname)
 {
     FuncState *fs = ls->fs;
@@ -193,16 +196,17 @@ static int registerlocalvar (LexState *ls, TString *varname)
     return fs->nlocvars++;
 }
 
-
+/** 新建一个局部变量。*/
 static void new_localvar (LexState *ls, TString *name)
 {
     FuncState *fs = ls->fs;
     Dyndata *dyd = ls->dyd;
-    int reg = registerlocalvar(ls, name);
+    int reg = registerlocalvar(ls, name); //返回变量在栈中的位置
     checklimit(fs, dyd->actvar.n + 1 - fs->firstlocal,
                MAXVARS, "local variables");
     luaM_growvector(ls->L, dyd->actvar.arr, dyd->actvar.n + 1,
                     dyd->actvar.size, Vardesc, MAX_INT, "local variables");
+    //把变量放到活动列表中
     dyd->actvar.arr[dyd->actvar.n++].idx = cast(short, reg);
 }
 
@@ -215,7 +219,9 @@ static void new_localvarliteral_ (LexState *ls, const char *name, size_t sz)
 #define new_localvarliteral(ls,v) \
 	new_localvarliteral_(ls, "" v, (sizeof(v)/sizeof(char))-1)
 
-
+/** 通过索引，取到一个局部变量。
+ *  @param i 当前函数中活动变量的索引。
+ */
 static LocVar *getlocvar (FuncState *fs, int i)
 {
     int idx = fs->ls->dyd->actvar.arr[fs->firstlocal + i].idx;
@@ -242,7 +248,7 @@ static void removevars (FuncState *fs, int tolevel)
         getlocvar(fs, --fs->nactvar)->endpc = fs->pc;
 }
 
-
+/** 在当前函数的upvalue表中查找变量。如果找到返回其索引，否则返回-1.*/
 static int searchupvalue (FuncState *fs, TString *name)
 {
     int i;
@@ -254,7 +260,7 @@ static int searchupvalue (FuncState *fs, TString *name)
     return -1;  /* not found */
 }
 
-
+/** 在当前函数的upvalue表中追加upvalue数据。*/
 static int newupvalue (FuncState *fs, TString *name, expdesc *v)
 {
     Proto *f = fs->f;
@@ -270,7 +276,7 @@ static int newupvalue (FuncState *fs, TString *name, expdesc *v)
     return fs->nups++;
 }
 
-//在当前的函数中查找变量。如果找到，返回它在数组中索引；否则返回-1。
+/**在当前的函数中查找变量。如果找到，返回它在数组中索引；否则返回-1。*/
 static int searchvar (FuncState *fs, TString *n)
 {
     int i;
@@ -282,7 +288,11 @@ static int searchvar (FuncState *fs, TString *n)
     return -1;  /* not found */
 }
 
-//将该变量标记为upvalue。
+/** 将变量所在层的block标记为存在upvalue。
+ *  @param level 局部变量的索引
+ *  由于函数内的局部都是放在一起的。所以局部变量的索引是唯一的，
+ *  也就是说，局部变量的索引和block是一一对应的。
+ */
 /*
   Mark block where variable at given level was defined
   (to emit close instructions later).
@@ -312,7 +322,7 @@ static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base)
         if (v >= 0)    /* found? */
         {
             init_exp(var, VLOCAL, v);  /* variable is local */
-            if (!base)
+            if (!base) //如果变量不是同一层的，就标记为upvalue
                 markupval(fs, v);  /* local will be used as an upval */
             return VLOCAL;
         }
@@ -324,7 +334,8 @@ static int singlevaraux (FuncState *fs, TString *n, expdesc *var, int base)
                 //去上一层查找
                 if (singlevaraux(fs->prev, n, var, 0) == VVOID) /* try upper levels */
                     return VVOID;  /* not found; is a global */
-                //这是一个新的upvalue
+                
+                //如果在某一层发现了局部变量，沿途的每一个函数，都要记录这个upvalue。
                 /* else was LOCAL or UPVAL */
                 idx  = newupvalue(fs, n, var);  /* will be a new upvalue */
             }
@@ -1443,7 +1454,7 @@ static void whilestat (LexState *ls, int line)
     int condexit;
     BlockCnt bl;
     luaX_next(ls);  /* skip WHILE */
-    whileinit = luaK_getlabel(fs);
+    whileinit = luaK_getlabel(fs); // 记录下当前指令位置
     condexit = cond(ls);
     enterblock(fs, &bl, 1);
     checknext(ls, TK_DO);

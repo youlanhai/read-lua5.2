@@ -481,7 +481,7 @@ typedef struct Proto
     Instruction *code; // 代码指令（数组）。
     struct Proto **p; // 内嵌函数列表（数组）  /* functions defined inside the function */
     int *lineinfo;  //指令对应的行号(数组)。用于调试。 /* map from opcodes to source lines (debug information) */
-    LocVar *locvars; //局部变量的信息（数组）。用于调试。 /* information about local variables (debug information) */
+    LocVar *locvars; //函数内的局部变量（包括内部语句块）的信息（数组）。用于调试。 /* information about local variables (debug information) */
     Upvaldesc *upvalues; //(数组) /* upvalue information */
     union Closure *cache;  /* last created closure with this prototype */
     TString  *source;  /* used for debug information */
