@@ -34,7 +34,7 @@ static int isnumeral(expdesc *e)
     return (e->k == VKNUM && e->t == NO_JUMP && e->f == NO_JUMP);
 }
 
-
+/** 生成OP_LOADNIL指令。将from寄存器开始，将n个寄存器都赋值成nil。*/
 void luaK_nil (FuncState *fs, int from, int n)
 {
     Instruction *previous;
@@ -60,13 +60,17 @@ void luaK_nil (FuncState *fs, int from, int n)
     luaK_codeABC(fs, OP_LOADNIL, from, n - 1, 0);  /* else no optimization */
 }
 
-
+/** 生成跳转指令。并连接到跳转链上。*/
 int luaK_jump (FuncState *fs)
 {
+    // 将跳转链保存下来，防止指令生成过程被清空。
     int jpc = fs->jpc;  /* save list of jumps to here */
     int j;
-    fs->jpc = NO_JUMP;
+    fs->jpc = NO_JUMP; // 设置为无跳转，防止内部生成指令的时候，将跳转链清空了。
+    
     j = luaK_codeAsBx(fs, OP_JMP, 0, NO_JUMP); // 生成指令，并返回指令的地址
+    
+    // 重新连接跳转链。
     luaK_concat(fs, &j, jpc);  /* keep them on hold */
     return j;
 }
@@ -77,14 +81,16 @@ void luaK_ret (FuncState *fs, int first, int nret)
     luaK_codeABC(fs, OP_RETURN, first, nret + 1, 0);
 }
 
-/** 生成条件跳转指令。*/
+/** 生成条件跳转指令。一条件跳转指令，后面会紧跟一条OP_JMP指令。也就是分成功跳转，和失败跳转两种情况。
+ *
+ */
 static int condjump (FuncState *fs, OpCode op, int A, int B, int C)
 {
-    luaK_codeABC(fs, op, A, B, C);
-    return luaK_jump(fs);
+    luaK_codeABC(fs, op, A, B, C); // 生成TEST指令
+    return luaK_jump(fs); // 生成后续的JMP指令
 }
 
-/** 修正跳转指令。
+/** 修正跳转指令的跳转目标。
  *  @param pc 要修正的指令地址
  *  @param dest 要跳转到的地址
  */
@@ -120,7 +126,7 @@ static int getjump (FuncState *fs, int pc)
         return (pc + 1) + offset; /* turn offset into absolute position */
 }
 
-
+/** 获得跳转控制指令。因为jmp的上一条指令，一般都是TEST，返回上一条Test指令。*/
 static Instruction *getjumpcontrol (FuncState *fs, int pc)
 {
     Instruction *pi = &fs->f->code[pc];
@@ -192,7 +198,7 @@ static void patchlistaux (FuncState *fs, int list, int vtarget, int reg, int dta
     {
         int next = getjump(fs, list);
         if (patchtestreg(fs, list, reg))
-            fixjump(fs, list, vtarget);
+            fixjump(fs, list, vtarget); // 修改跳转目标
         else
             fixjump(fs, list, dtarget);  /* jump to default target */
         
@@ -208,7 +214,9 @@ static void dischargejpc (FuncState *fs)
     fs->jpc = NO_JUMP;
 }
 
-
+/** 修正跳转链。 如果跳转目标就是当前的指令位置，将list连接到当前的跳转链表中，暂不修复目标。
+ *  否则，修正整个链表的跳转目标。
+ */
 void luaK_patchlist (FuncState *fs, int list, int target)
 {
     if (target == fs->pc)
@@ -220,9 +228,13 @@ void luaK_patchlist (FuncState *fs, int list, int target)
     }
 }
 
-
+/** 修正要关闭的upvalue。
+ *  @param list     跳转链表
+ *  @param level    关闭大于这一级的所有upvalue
+ */
 LUAI_FUNC void luaK_patchclose (FuncState *fs, int list, int level)
 {
+    // 0 是用来表示不关闭upvalue。所以+1来区分。
     level++;  /* argument is +1 to reserve 0 as non-op */
     while (list != NO_JUMP)
     {
@@ -251,6 +263,7 @@ void luaK_concat (FuncState *fs, int *l1, int l2)
         *l1 = l2; //将l2连接到l1上
     else
     {
+        // 找到链表的尾结点，将l2接到尾结点上。
         int list = *l1;
         int next;
         while ((next = getjump(fs, list)) != NO_JUMP)  /* find last element */
@@ -259,7 +272,9 @@ void luaK_concat (FuncState *fs, int *l1, int l2)
     }
 }
 
-// 存贮指令
+/** 存贮指令i，并且修正跳转链表。当加入非跳转指令的时候，要把之前的跳转链都修复了。
+ *  当加入条件跳转指令的时候，会自动保存跳转链，等新指令生成完毕后，再合并到一起(见luaK_jump)。
+ */
 static int luaK_code (FuncState *fs, Instruction i)
 {
     Proto *f = fs->f;
@@ -305,7 +320,10 @@ static int codeextraarg (FuncState *fs, int a)
     return luaK_code(fs, CREATE_Ax(OP_EXTRAARG, a));
 }
 
-
+/** 将常量加载到目标寄存器。
+ *  @param reg  目标寄存器
+ *  @param k    常量寄存器
+ */
 int luaK_codek (FuncState *fs, int reg, int k)
 {
     if (k <= MAXARG_Bx)
@@ -330,14 +348,14 @@ void luaK_checkstack (FuncState *fs, int n)
     }
 }
 
-
+/** 分配n个寄存器。*/
 void luaK_reserveregs (FuncState *fs, int n)
 {
     luaK_checkstack(fs, n);
     fs->freereg += n;
 }
 
-
+/** 释放一个寄存器。reg通常是临时变量寄存器。 */
 static void freereg (FuncState *fs, int reg)
 {
     if (!ISK(reg) && reg >= fs->nactvar)
@@ -347,7 +365,7 @@ static void freereg (FuncState *fs, int reg)
     }
 }
 
-
+/** 释放exp占用的寄存器（如果有占用，就释放）。*/
 static void freeexp (FuncState *fs, expdesc *e)
 {
     if (e->k == VNONRELOC)
@@ -459,18 +477,22 @@ void luaK_setoneret (FuncState *fs, expdesc *e)
     }
 }
 
-// 释放变量
+/** 为待定的查找操作生成指令。即，生成变量查找指令。
+ *  此函数不分配目标寄存器。
+ */
 void luaK_dischargevars (FuncState *fs, expdesc *e)
 {
     switch (e->k)
     {
     case VLOCAL:
     {
+        // 局部变量可以直接访问，不需要生成指令
         e->k = VNONRELOC;
         break;
     }
     case VUPVAL:
     {
+        // 将upvalue值(e->u.info)放到A寄存器中，A寄存器稍后填上。
         e->u.info = luaK_codeABC(fs, OP_GETUPVAL, 0, e->u.info, 0);
         e->k = VRELOCABLE;
         break;
@@ -506,42 +528,45 @@ static int code_label (FuncState *fs, int A, int b, int jump)
     return luaK_codeABC(fs, OP_LOADBOOL, A, b, jump);
 }
 
-
+/** 处理待定的加载(查找)指令。生成加载指令，并设置目标寄存器。
+ *  @param e    待定的指令信息
+ *  @param reg  目标寄存器
+ */
 static void discharge2reg (FuncState *fs, expdesc *e, int reg)
 {
     luaK_dischargevars(fs, e);
     switch (e->k)
     {
     case VNIL:
-    {
+    {// load nil
         luaK_nil(fs, reg, 1);
         break;
     }
     case VFALSE:
     case VTRUE:
-    {
+    {// load true/false
         luaK_codeABC(fs, OP_LOADBOOL, reg, e->k == VTRUE, 0);
         break;
     }
     case VK:
-    {
+    {// 加载常量
         luaK_codek(fs, reg, e->u.info);
         break;
     }
     case VKNUM:
-    {
+    {// 加载数字常量
         luaK_codek(fs, reg, luaK_numberK(fs, e->u.nval));
         break;
     }
     case VRELOCABLE:
-    {
+    {// 给之前生成的指令设置目标寄存器。
         Instruction *pc = &getcode(fs, e);
         SETARG_A(*pc, reg);
         break;
     }
     case VNONRELOC:
-    {
-        if (reg != e->u.info)
+    {// 生成赋值指令OP_MOVE
+        if (reg != e->u.info) // 避免自己赋值给自己
             luaK_codeABC(fs, OP_MOVE, reg, e->u.info, 0);
         break;
     }
@@ -551,11 +576,12 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg)
         return;  /* nothing to do... */
     }
     }
+    // 将数据加载到local寄存器之后，后续的操作就针对local寄存器了。
     e->u.info = reg;
     e->k = VNONRELOC;
 }
 
-
+/** 对于需要分配寄存器的指令。统一生成加载指令，并分配寄存器。*/
 static void discharge2anyreg (FuncState *fs, expdesc *e)
 {
     if (e->k != VNONRELOC)
@@ -718,7 +744,7 @@ void luaK_self (FuncState *fs, expdesc *e, expdesc *key)
     freeexp(fs, key);
 }
 
-
+// 反转跳转指令。
 static void invertjump (FuncState *fs, expdesc *e)
 {
     Instruction *pc = getjumpcontrol(fs, e->u.info);
@@ -727,21 +753,30 @@ static void invertjump (FuncState *fs, expdesc *e)
     SETARG_A(*pc, !(GETARG_A(*pc)));
 }
 
-
+/** 生成条件跳转指令。
+ *  @param e    主要记录指令用到的寄存器信息。
+ *  @param cond 要判断的条件（0|1）.
+ */
 static int jumponcond (FuncState *fs, expdesc *e, int cond)
 {
     if (e->k == VRELOCABLE)
     {
+        // 优化not指令。如果前一条指令是not，这里直接生成相反的跳转。
         Instruction ie = getcode(fs, e);
         if (GET_OPCODE(ie) == OP_NOT)
         {
             fs->pc--;  /* remove previous OP_NOT */
+            //生成TEST跳转指令
             return condjump(fs, OP_TEST, GETARG_B(ie), 0, !cond);
         }
         /* else go through */
     }
+    
+    // 为条件变量生成加载指令（如果需要加载的话）
     discharge2anyreg(fs, e);
     freeexp(fs, e);
+    
+    // 生成TESTSET跳转指令
     return condjump(fs, OP_TESTSET, NO_REG, e->u.info, cond);
 }
 
@@ -769,12 +804,14 @@ void luaK_goiftrue (FuncState *fs, expdesc *e)
         break;
     }
     default:
-    {
+    {// 生成条件跳转指令.
         pc = jumponcond(fs, e, 0);
         break;
     }
     }
+    // 将新生成的跳转指令连接到之前的指令后面
     luaK_concat(fs, &e->f, pc);  /* insert last jump in `f' list */
+    // 再将整个跳转连接到fs->jpc上。
     luaK_patchtohere(fs, e->t);
     e->t = NO_JUMP;
 }
