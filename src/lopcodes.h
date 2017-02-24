@@ -213,7 +213,7 @@ typedef enum
     OP_LT,/*	A B C	if ((RK(B) <  RK(C)) ~= A) then pc++		*/
     OP_LE,/*	A B C	if ((RK(B) <= RK(C)) ~= A) then pc++		*/
 
-    OP_TEST,/*	A C	if not (R(A) <=> C) then pc++			*/
+    OP_TEST,/*	A C	if not (R(A) <=> C) then pc++	如果A != C, 就跳过下一条指令（即，略过紧跟着的跳转指令）。可理解为成功就跳转，失败继续向下运行。		*/
     OP_TESTSET,/*	A B C	if (R(B) <=> C) then R(A) := R(B) else pc++	*/
 
     OP_CALL,/*	A B C	R(A), ... ,R(A+C-2) := R(A)(R(A+1), ... ,R(A+B-1)) */
@@ -288,6 +288,7 @@ LUAI_DDEC const lu_byte luaP_opmodes[NUM_OPCODES];
 #define getBMode(m)	(cast(enum OpArgMask, (luaP_opmodes[m] >> 4) & 3))
 #define getCMode(m)	(cast(enum OpArgMask, (luaP_opmodes[m] >> 2) & 3))
 #define testAMode(m)	(luaP_opmodes[m] & (1 << 6))
+// 是否是Test类型指令
 #define testTMode(m)	(luaP_opmodes[m] & (1 << 7))
 
 

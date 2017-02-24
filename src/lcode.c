@@ -77,14 +77,17 @@ void luaK_ret (FuncState *fs, int first, int nret)
     luaK_codeABC(fs, OP_RETURN, first, nret + 1, 0);
 }
 
-
+/** 生成条件跳转指令。*/
 static int condjump (FuncState *fs, OpCode op, int A, int B, int C)
 {
     luaK_codeABC(fs, op, A, B, C);
     return luaK_jump(fs);
 }
 
-/** 修正跳转指令。*/
+/** 修正跳转指令。
+ *  @param pc 要修正的指令地址
+ *  @param dest 要跳转到的地址
+ */
 static void fixjump (FuncState *fs, int pc, int dest)
 {
     Instruction *jmp = &fs->f->code[pc];
@@ -106,7 +109,7 @@ int luaK_getlabel (FuncState *fs)
     return fs->pc;
 }
 
-/** 获得pc位置指令的跳转目标位置。*/
+/** 获得pc指令要跳转到的目标位置。通常目标位置其实是下一条跳转指令，这样就构成了一条跳转链表。*/
 static int getjump (FuncState *fs, int pc)
 {
     int offset = GETARG_sBx(fs->f->code[pc]);
@@ -121,6 +124,7 @@ static int getjump (FuncState *fs, int pc)
 static Instruction *getjumpcontrol (FuncState *fs, int pc)
 {
     Instruction *pi = &fs->f->code[pc];
+    // 上一条指令也是跳转指令，则返回上一条指令
     if (pc >= 1 && testTMode(GET_OPCODE(*(pi - 1))))
         return pi - 1;
     else
@@ -142,16 +146,29 @@ static int need_value (FuncState *fs, int list)
     return 0;  /* not found */
 }
 
-
+/** 给Test指令打补丁，设置目标寄存器（即存放比较结果的寄存器）。
+ *  @param node 跳转指令所在位置
+ *  @param reg  目标寄存器
+ *  @return 如果可以在尾部连接其他指令，就返回1。否则返回0.
+ */
 static int patchtestreg (FuncState *fs, int node, int reg)
 {
     Instruction *i = getjumpcontrol(fs, node);
     if (GET_OPCODE(*i) != OP_TESTSET)
         return 0;  /* cannot patch other instructions */
+    
+    // 如果，要存放的值就在目标寄存器里了，没必要浪费一次赋值操作。用TEST指令就好了。
     if (reg != NO_REG && reg != GETARG_B(*i))
-        SETARG_A(*i, reg);
-    else  /* no register to put value or register already has the value */
+    {
+        SETARG_A(*i, reg); // 设置目标寄存器
+    }
+    else
+    {
+        // 如果没有要存放的值 或者 要存放的值就在目标寄存器里了。
+        // OP_TEST 指令只用到了A,C寄存器。A为条件变量所在的寄存器，C为要比较的值（0|1）
+        /* no register to put value or register already has the value */
         *i = CREATE_ABC(OP_TEST, GETARG_B(*i), 0, GETARG_C(*i));
+    }
 
     return 1;
 }
@@ -163,9 +180,13 @@ static void removevalues (FuncState *fs, int list)
         patchtestreg(fs, list, NO_REG);
 }
 
-
-static void patchlistaux (FuncState *fs, int list, int vtarget, int reg,
-                          int dtarget)
+/** 修正跳转链表。
+ *  @param list     链表头结点
+ *  @param vtarget  跳转目标
+ *  @param ret      目标寄存器（存放比较结果）
+ *  @param dtarget  默认的跳转目标
+ */
+static void patchlistaux (FuncState *fs, int list, int vtarget, int reg, int dtarget)
 {
     while (list != NO_JUMP)
     {
@@ -174,11 +195,13 @@ static void patchlistaux (FuncState *fs, int list, int vtarget, int reg,
             fixjump(fs, list, vtarget);
         else
             fixjump(fs, list, dtarget);  /* jump to default target */
+        
+        // 处理下一条跳转指令
         list = next;
     }
 }
 
-
+/** 修正跳转链的地址，然后清空跳转链。*/
 static void dischargejpc (FuncState *fs)
 {
     patchlistaux(fs, fs->jpc, fs->pc, NO_REG, fs->pc);
