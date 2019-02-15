@@ -26,12 +26,14 @@
 #include "lvm.h"
 
 
-#define hasjumps(e)	((e)->t != (e)->f)
-
+int hasjumps(expdesc* e)
+{
+    return e->true_list != e->false_list;
+}
 
 static int isnumeral(expdesc *e)
 {
-    return (e->k == VKNUM && e->t == NO_JUMP && e->f == NO_JUMP);
+    return (e->kind == VKNUM && e->true_list == NO_JUMP && e->false_list == NO_JUMP);
 }
 
 /** 生成OP_LOADNIL指令。将from寄存器开始，将n个寄存器都赋值成nil。*/
@@ -368,7 +370,7 @@ static void freereg (FuncState *fs, int reg)
 /** 释放exp占用的寄存器（如果有占用，就释放）。*/
 static void freeexp (FuncState *fs, expdesc *e)
 {
-    if (e->k == VNONRELOC)
+    if (e->kind == VNONRELOC)
         freereg(fs, e->u.info);
 }
 
@@ -450,11 +452,11 @@ static int nilK (FuncState *fs)
 
 void luaK_setreturns (FuncState *fs, expdesc *e, int nresults)
 {
-    if (e->k == VCALL)    /* expression is an open function call? */
+    if (e->kind == VCALL)    /* expression is an open function call? */
     {
         SETARG_C(getcode(fs, e), nresults + 1);
     }
-    else if (e->k == VVARARG)
+    else if (e->kind == VVARARG)
     {
         SETARG_B(getcode(fs, e), nresults + 1);
         SETARG_A(getcode(fs, e), fs->freereg);
@@ -465,15 +467,15 @@ void luaK_setreturns (FuncState *fs, expdesc *e, int nresults)
 
 void luaK_setoneret (FuncState *fs, expdesc *e)
 {
-    if (e->k == VCALL)    /* expression is an open function call? */
+    if (e->kind == VCALL)    /* expression is an open function call? */
     {
-        e->k = VNONRELOC;
+        e->kind = VNONRELOC;
         e->u.info = GETARG_A(getcode(fs, e));
     }
-    else if (e->k == VVARARG)
+    else if (e->kind == VVARARG)
     {
         SETARG_B(getcode(fs, e), 2);
-        e->k = VRELOCABLE;  /* can relocate its simple result */
+        e->kind = VRELOCABLE;  /* can relocate its simple result */
     }
 }
 
@@ -482,19 +484,19 @@ void luaK_setoneret (FuncState *fs, expdesc *e)
  */
 void luaK_dischargevars (FuncState *fs, expdesc *e)
 {
-    switch (e->k)
+    switch (e->kind)
     {
     case VLOCAL:
     {
         // 局部变量可以直接访问，不需要生成指令
-        e->k = VNONRELOC;
+        e->kind = VNONRELOC;
         break;
     }
     case VUPVAL:
     {
         // 将upvalue值(e->u.info)放到A寄存器中，A寄存器稍后填上。
         e->u.info = luaK_codeABC(fs, OP_GETUPVAL, 0, e->u.info, 0);
-        e->k = VRELOCABLE;
+        e->kind = VRELOCABLE;
         break;
     }
     case VINDEXED:
@@ -507,7 +509,7 @@ void luaK_dischargevars (FuncState *fs, expdesc *e)
             op = OP_GETTABLE;
         }
         e->u.info = luaK_codeABC(fs, op, 0, e->u.ind.t, e->u.ind.idx);
-        e->k = VRELOCABLE;
+        e->kind = VRELOCABLE;
         break;
     }
     case VVARARG:
@@ -535,7 +537,7 @@ static int code_label (FuncState *fs, int A, int b, int jump)
 static void discharge2reg (FuncState *fs, expdesc *e, int reg)
 {
     luaK_dischargevars(fs, e);
-    switch (e->k)
+    switch (e->kind)
     {
     case VNIL:
     {// load nil
@@ -545,7 +547,7 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg)
     case VFALSE:
     case VTRUE:
     {// load true/false
-        luaK_codeABC(fs, OP_LOADBOOL, reg, e->k == VTRUE, 0);
+        luaK_codeABC(fs, OP_LOADBOOL, reg, e->kind == VTRUE, 0);
         break;
     }
     case VK:
@@ -578,13 +580,13 @@ static void discharge2reg (FuncState *fs, expdesc *e, int reg)
     }
     // 将数据加载到local寄存器之后，后续的操作就针对local寄存器了。
     e->u.info = reg;
-    e->k = VNONRELOC;
+    e->kind = VNONRELOC;
 }
 
 /** 对于需要分配寄存器的指令。统一生成加载指令，并分配寄存器。*/
 static void discharge2anyreg (FuncState *fs, expdesc *e)
 {
-    if (e->k != VNONRELOC)
+    if (e->kind != VNONRELOC)
     {
         luaK_reserveregs(fs, 1);
         discharge2reg(fs, e, fs->freereg - 1);
@@ -595,27 +597,27 @@ static void discharge2anyreg (FuncState *fs, expdesc *e)
 static void exp2reg (FuncState *fs, expdesc *e, int reg)
 {
     discharge2reg(fs, e, reg);
-    if (e->k == VJMP)
-        luaK_concat(fs, &e->t, e->u.info);  /* put this jump in `t' list */
+    if (e->kind == VJMP)
+        luaK_concat(fs, &e->true_list, e->u.info);  /* put this jump in `t' list */
     if (hasjumps(e))
     {
         int final;  /* position after whole expression */
         int p_f = NO_JUMP;  /* position of an eventual LOAD false */
         int p_t = NO_JUMP;  /* position of an eventual LOAD true */
-        if (need_value(fs, e->t) || need_value(fs, e->f))
+        if (need_value(fs, e->true_list) || need_value(fs, e->false_list))
         {
-            int fj = (e->k == VJMP) ? NO_JUMP : luaK_jump(fs);
+            int fj = (e->kind == VJMP) ? NO_JUMP : luaK_jump(fs);
             p_f = code_label(fs, reg, 0, 1);
             p_t = code_label(fs, reg, 1, 0);
             luaK_patchtohere(fs, fj);
         }
         final = luaK_getlabel(fs);
-        patchlistaux(fs, e->f, final, reg, p_f);
-        patchlistaux(fs, e->t, final, reg, p_t);
+        patchlistaux(fs, e->false_list, final, reg, p_f);
+        patchlistaux(fs, e->true_list, final, reg, p_t);
     }
-    e->f = e->t = NO_JUMP;
+    e->false_list = e->true_list = NO_JUMP;
     e->u.info = reg;
-    e->k = VNONRELOC;
+    e->kind = VNONRELOC;
 }
 
 
@@ -631,7 +633,7 @@ void luaK_exp2nextreg (FuncState *fs, expdesc *e)
 int luaK_exp2anyreg (FuncState *fs, expdesc *e)
 {
     luaK_dischargevars(fs, e);
-    if (e->k == VNONRELOC)
+    if (e->kind == VNONRELOC)
     {
         if (!hasjumps(e)) return e->u.info;  /* exp is already in a register */
         if (e->u.info >= fs->nactvar)    /* reg. is not a local? */
@@ -647,7 +649,7 @@ int luaK_exp2anyreg (FuncState *fs, expdesc *e)
 
 void luaK_exp2anyregup (FuncState *fs, expdesc *e)
 {
-    if (e->k != VUPVAL || hasjumps(e))
+    if (e->kind != VUPVAL || hasjumps(e))
         luaK_exp2anyreg(fs, e);
 }
 
@@ -664,7 +666,7 @@ void luaK_exp2val (FuncState *fs, expdesc *e)
 int luaK_exp2RK (FuncState *fs, expdesc *e)
 {
     luaK_exp2val(fs, e);
-    switch (e->k)
+    switch (e->kind)
     {
     case VTRUE:
     case VFALSE:
@@ -672,8 +674,8 @@ int luaK_exp2RK (FuncState *fs, expdesc *e)
     {
         if (fs->nk <= MAXINDEXRK)    /* constant fits in RK operand? */
         {
-            e->u.info = (e->k == VNIL) ? nilK(fs) : boolK(fs, (e->k == VTRUE));
-            e->k = VK;
+            e->u.info = (e->kind == VNIL) ? nilK(fs) : boolK(fs, (e->kind == VTRUE));
+            e->kind = VK;
             return RKASK(e->u.info);
         }
         else break;
@@ -681,7 +683,7 @@ int luaK_exp2RK (FuncState *fs, expdesc *e)
     case VKNUM:
     {
         e->u.info = luaK_numberK(fs, e->u.nval);
-        e->k = VK;
+        e->kind = VK;
         /* go through */
     }
     case VK:
@@ -700,7 +702,7 @@ int luaK_exp2RK (FuncState *fs, expdesc *e)
 
 void luaK_storevar (FuncState *fs, expdesc *var, expdesc *ex)
 {
-    switch (var->k)
+    switch (var->kind)
     {
     case VLOCAL:
     {
@@ -738,7 +740,7 @@ void luaK_self (FuncState *fs, expdesc *e, expdesc *key)
     ereg = e->u.info;  /* register where 'e' was placed */
     freeexp(fs, e);
     e->u.info = fs->freereg;  /* base register for op_self */
-    e->k = VNONRELOC;
+    e->kind = VNONRELOC;
     luaK_reserveregs(fs, 2);  /* function and 'self' produced by op_self */
     luaK_codeABC(fs, OP_SELF, e->u.info, ereg, luaK_exp2RK(fs, key));
     freeexp(fs, key);
@@ -759,7 +761,7 @@ static void invertjump (FuncState *fs, expdesc *e)
  */
 static int jumponcond (FuncState *fs, expdesc *e, int cond)
 {
-    if (e->k == VRELOCABLE)
+    if (e->kind == VRELOCABLE)
     {
         // 优化not指令。如果前一条指令是not，这里直接生成相反的跳转。
         Instruction ie = getcode(fs, e);
@@ -780,14 +782,14 @@ static int jumponcond (FuncState *fs, expdesc *e, int cond)
     return condjump(fs, OP_TESTSET, NO_REG, e->u.info, cond);
 }
 
-/** 如果条件成立，就继续向下执行，否则跳转到指定地址。
+/** 生成跳转指令。如果条件成立，就继续向下执行，否则跳转到指定地址。
  *  @param e 最近一次的表达式结果
  */
 void luaK_goiftrue (FuncState *fs, expdesc *e)
 {
     int pc;  /* pc of last jump */
     luaK_dischargevars(fs, e);
-    switch (e->k)
+    switch (e->kind)
     {
     case VJMP:
     {
@@ -810,18 +812,18 @@ void luaK_goiftrue (FuncState *fs, expdesc *e)
     }
     }
     // 将新生成的跳转指令连接到之前的指令后面
-    luaK_concat(fs, &e->f, pc);  /* insert last jump in `f' list */
+    luaK_concat(fs, &e->false_list, pc);  /* insert last jump in `f' list */
     // 再将整个跳转连接到fs->jpc上。
-    luaK_patchtohere(fs, e->t);
-    e->t = NO_JUMP;
+    luaK_patchtohere(fs, e->true_list);
+    e->true_list = NO_JUMP;
 }
 
-
+/** 生成跳转指令。与luaK_goiftrue同理。*/
 void luaK_goiffalse (FuncState *fs, expdesc *e)
 {
     int pc;  /* pc of last jump */
     luaK_dischargevars(fs, e);
-    switch (e->k)
+    switch (e->kind)
     {
     case VJMP:
     {
@@ -840,28 +842,28 @@ void luaK_goiffalse (FuncState *fs, expdesc *e)
         break;
     }
     }
-    luaK_concat(fs, &e->t, pc);  /* insert last jump in `t' list */
-    luaK_patchtohere(fs, e->f);
-    e->f = NO_JUMP;
+    luaK_concat(fs, &e->true_list, pc);  /* insert last jump in `t' list */
+    luaK_patchtohere(fs, e->false_list);
+    e->false_list = NO_JUMP;
 }
 
 
 static void codenot (FuncState *fs, expdesc *e)
 {
     luaK_dischargevars(fs, e);
-    switch (e->k)
+    switch (e->kind)
     {
     case VNIL:
     case VFALSE:
     {
-        e->k = VTRUE;
+        e->kind = VTRUE;
         break;
     }
     case VK:
     case VKNUM:
     case VTRUE:
     {
-        e->k = VFALSE;
+        e->kind = VFALSE;
         break;
     }
     case VJMP:
@@ -875,7 +877,7 @@ static void codenot (FuncState *fs, expdesc *e)
         discharge2anyreg(fs, e);
         freeexp(fs, e);
         e->u.info = luaK_codeABC(fs, OP_NOT, 0, e->u.info, 0);
-        e->k = VRELOCABLE;
+        e->kind = VRELOCABLE;
         break;
     }
     default:
@@ -886,12 +888,12 @@ static void codenot (FuncState *fs, expdesc *e)
     }
     /* interchange true and false lists */
     {
-        int temp = e->f;
-        e->f = e->t;
-        e->t = temp;
+        int temp = e->false_list;
+        e->false_list = e->true_list;
+        e->true_list = temp;
     }
-    removevalues(fs, e->f);
-    removevalues(fs, e->t);
+    removevalues(fs, e->false_list);
+    removevalues(fs, e->true_list);
 }
 
 //生成指令：在t中索引k。
@@ -900,9 +902,9 @@ void luaK_indexed (FuncState *fs, expdesc *t, expdesc *k)
     lua_assert(!hasjumps(t));
     t->u.ind.t = t->u.info;
     t->u.ind.idx = luaK_exp2RK(fs, k);
-    t->u.ind.vt = (t->k == VUPVAL) ? VUPVAL
+    t->u.ind.vt = (t->kind == VUPVAL) ? VUPVAL
                   : check_exp(vkisinreg(t->k), VLOCAL);
-    t->k = VINDEXED;
+    t->kind = VINDEXED;
 }
 
 
@@ -938,7 +940,7 @@ static void codearith (FuncState *fs, OpCode op,
             freeexp(fs, e1);
         }
         e1->u.info = luaK_codeABC(fs, op, 0, o1, o2);
-        e1->k = VRELOCABLE;
+        e1->kind = VRELOCABLE;
         luaK_fixline(fs, line);
     }
 }
@@ -960,15 +962,15 @@ static void codecomp (FuncState *fs, OpCode op, int cond, expdesc *e1,
         cond = 1;
     }
     e1->u.info = condjump(fs, op, cond, o1, o2);
-    e1->k = VJMP;
+    e1->kind = VJMP;
 }
 
 
 void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e, int line)
 {
     expdesc e2;
-    e2.t = e2.f = NO_JUMP;
-    e2.k = VKNUM;
+    e2.true_list = e2.false_list = NO_JUMP;
+    e2.kind = VKNUM;
     e2.u.nval = 0;
     switch (op)
     {
@@ -998,7 +1000,12 @@ void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e, int line)
     }
 }
 
-
+/** 修正运算符左侧的表达式。
+ *      lua逻辑运算是中断模式，如果逻辑运算符前面的表达式满足条件，后面的表达式就无需求值了。
+ *  因此，不管运算符的优先级如何，都要为前面的表达式生成代码。
+ *      比如：a = b and c + 1，虽然“+”号运算符优先级更高，理应先为c+1生成代码，但是如果b是false，
+ *  则c+1都不用计算了。所有，要先为b生成代码。
+ */
 void luaK_infix (FuncState *fs, BinOpr op, expdesc *v)
 {
     switch (op)
@@ -1036,7 +1043,7 @@ void luaK_infix (FuncState *fs, BinOpr op, expdesc *v)
     }
 }
 
-
+/** 修正运算符右侧的表达式 */
 void luaK_posfix (FuncState *fs, BinOpr op,
                   expdesc *e1, expdesc *e2, int line)
 {
@@ -1046,7 +1053,7 @@ void luaK_posfix (FuncState *fs, BinOpr op,
     {
         lua_assert(e1->t == NO_JUMP);  /* list must be closed */
         luaK_dischargevars(fs, e2);
-        luaK_concat(fs, &e2->f, e1->f);
+        luaK_concat(fs, &e2->false_list, e1->false_list);
         *e1 = *e2;
         break;
     }
@@ -1054,19 +1061,19 @@ void luaK_posfix (FuncState *fs, BinOpr op,
     {
         lua_assert(e1->f == NO_JUMP);  /* list must be closed */
         luaK_dischargevars(fs, e2);
-        luaK_concat(fs, &e2->t, e1->t);
+        luaK_concat(fs, &e2->true_list, e1->true_list);
         *e1 = *e2;
         break;
     }
     case OPR_CONCAT:
     {
         luaK_exp2val(fs, e2);
-        if (e2->k == VRELOCABLE && GET_OPCODE(getcode(fs, e2)) == OP_CONCAT)
+        if (e2->kind == VRELOCABLE && GET_OPCODE(getcode(fs, e2)) == OP_CONCAT)
         {
             lua_assert(e1->u.info == GETARG_B(getcode(fs, e2)) - 1);
             freeexp(fs, e1);
             SETARG_B(getcode(fs, e2), e1->u.info);
-            e1->k = VRELOCABLE;
+            e1->kind = VRELOCABLE;
             e1->u.info = e2->u.info;
         }
         else

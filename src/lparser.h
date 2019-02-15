@@ -41,7 +41,7 @@ typedef enum
 //表达式描述
 typedef struct expdesc
 {
-    expkind k;
+    expkind kind;
     union
     {
         struct    /* for indexed variables (VINDEXED) */
@@ -56,8 +56,8 @@ typedef struct expdesc
         int info;  /* for generic use */
         lua_Number nval;  /* for VKNUM */
     } u;
-    int t;  /* patch list of `exit when true' */
-    int f;  /* patch list of `exit when false' */
+    int true_list;  /* patch list of `exit when true' */
+    int false_list;  /* patch list of `exit when false' */
 } expdesc;
 
 

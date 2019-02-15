@@ -162,8 +162,8 @@ static TString *str_checkname (LexState *ls)
 
 static void init_exp (expdesc *e, expkind k, int i)
 {
-    e->f = e->t = NO_JUMP;
-    e->k = k;
+    e->false_list = e->true_list = NO_JUMP;
+    e->kind = k;
     e->u.info = i;
 }
 
@@ -269,7 +269,7 @@ static int newupvalue (FuncState *fs, TString *name, expdesc *v)
     luaM_growvector(fs->ls->L, f->upvalues, fs->nups, f->sizeupvalues,
                     Upvaldesc, MAXUPVAL, "upvalues");
     while (oldsize < f->sizeupvalues) f->upvalues[oldsize++].name = NULL;
-    f->upvalues[fs->nups].instack = (v->k == VLOCAL);
+    f->upvalues[fs->nups].instack = (v->kind == VLOCAL);
     f->upvalues[fs->nups].idx = cast_byte(v->u.info);
     f->upvalues[fs->nups].name = name;
     luaC_objbarrier(fs->ls->L, f, name);
@@ -366,7 +366,7 @@ static void adjust_assign (LexState *ls, int nvars, int nexps, expdesc *e)
 {
     FuncState *fs = ls->fs;
     int extra = nvars - nexps;
-    if (hasmultret(e->k))
+    if (hasmultret(e->kind))
     {
         extra++;  /* includes call itself */
         if (extra < 0) extra = 0;
@@ -375,7 +375,7 @@ static void adjust_assign (LexState *ls, int nvars, int nexps, expdesc *e)
     }
     else
     {
-        if (e->k != VVOID) luaK_exp2nextreg(fs, e);  /* close last expression */
+        if (e->kind != VVOID) luaK_exp2nextreg(fs, e);  /* close last expression */
         if (extra > 0)
         {
             int reg = fs->freereg;
@@ -767,9 +767,9 @@ static void recfield (LexState *ls, struct ConsControl *cc)
 
 static void closelistfield (FuncState *fs, struct ConsControl *cc)
 {
-    if (cc->v.k == VVOID) return;  /* there is no list item */
+    if (cc->v.kind == VVOID) return;  /* there is no list item */
     luaK_exp2nextreg(fs, &cc->v);
-    cc->v.k = VVOID;
+    cc->v.kind = VVOID;
     if (cc->tostore == LFIELDS_PER_FLUSH)
     {
         luaK_setlist(fs, cc->t->u.info, cc->na, cc->tostore);  /* flush */
@@ -781,7 +781,7 @@ static void closelistfield (FuncState *fs, struct ConsControl *cc)
 static void lastlistfield (FuncState *fs, struct ConsControl *cc)
 {
     if (cc->tostore == 0) return;
-    if (hasmultret(cc->v.k))
+    if (hasmultret(cc->v.kind))
     {
         luaK_setmultret(fs, &cc->v);
         luaK_setlist(fs, cc->t->u.info, cc->na, LUA_MULTRET);
@@ -789,7 +789,7 @@ static void lastlistfield (FuncState *fs, struct ConsControl *cc)
     }
     else
     {
-        if (cc->v.k != VVOID)
+        if (cc->v.kind != VVOID)
             luaK_exp2nextreg(fs, &cc->v);
         luaK_setlist(fs, cc->t->u.info, cc->na, cc->tostore);
     }
@@ -952,7 +952,7 @@ static void funcargs (LexState *ls, expdesc *f, int line)
     {
         luaX_next(ls);
         if (ls->t.token == ')')  /* arg list is empty? */
-            args.k = VVOID;
+            args.kind = VVOID;
         else
         {
             explist(ls, &args);
@@ -979,11 +979,11 @@ static void funcargs (LexState *ls, expdesc *f, int line)
     }
     lua_assert(f->k == VNONRELOC);
     base = f->u.info;  /* base register for call */
-    if (hasmultret(args.k))
+    if (hasmultret(args.kind))
         nparams = LUA_MULTRET;  /* open call */
     else
     {
-        if (args.k != VVOID)
+        if (args.kind != VVOID)
             luaK_exp2nextreg(fs, &args);  /* close last argument */
         nparams = fs->freereg - (base + 1);
     }
@@ -1308,17 +1308,17 @@ static void check_conflict (LexState *ls, struct LHS_assign *lh, expdesc *v)
     int conflict = 0;
     for (; lh; lh = lh->prev)    /* check all previous assignments */
     {
-        if (lh->v.k == VINDEXED)    /* assigning to a table? */
+        if (lh->v.kind == VINDEXED)    /* assigning to a table? */
         {
             /* table is the upvalue/local being assigned now? */
-            if (lh->v.u.ind.vt == v->k && lh->v.u.ind.t == v->u.info)
+            if (lh->v.u.ind.vt == v->kind && lh->v.u.ind.t == v->u.info)
             {
                 conflict = 1;
                 lh->v.u.ind.vt = VLOCAL;
                 lh->v.u.ind.t = extra;  /* previous assignment will use safe copy */
             }
             /* index is the local being assigned? (index cannot be upvalue) */
-            if (v->k == VLOCAL && lh->v.u.ind.idx == v->u.info)
+            if (v->kind == VLOCAL && lh->v.u.ind.idx == v->u.info)
             {
                 conflict = 1;
                 lh->v.u.ind.idx = extra;  /* previous assignment will use safe copy */
@@ -1328,7 +1328,7 @@ static void check_conflict (LexState *ls, struct LHS_assign *lh, expdesc *v)
     if (conflict)
     {
         /* copy upvalue/local value to a temporary (in position 'extra') */
-        OpCode op = (v->k == VLOCAL) ? OP_MOVE : OP_GETUPVAL;
+        OpCode op = (v->kind == VLOCAL) ? OP_MOVE : OP_GETUPVAL;
         luaK_codeABC(fs, op, extra, v->u.info, 0);
         luaK_reserveregs(fs, 1);
     }
@@ -1338,13 +1338,13 @@ static void check_conflict (LexState *ls, struct LHS_assign *lh, expdesc *v)
 static void assignment (LexState *ls, struct LHS_assign *lh, int nvars)
 {
     expdesc e;
-    check_condition(ls, vkisvar(lh->v.k), "syntax error");
+    check_condition(ls, vkisvar(lh->v.kind), "syntax error");
     if (testnext(ls, ','))    /* assignment -> ',' suffixedexp assignment */
     {
         struct LHS_assign nv;
         nv.prev = lh;
         suffixedexp(ls, &nv.v);
-        if (nv.v.k != VINDEXED)
+        if (nv.v.kind != VINDEXED)
             check_conflict(ls, lh, &nv.v);
         checklimit(ls->fs, nvars + ls->L->nCcalls, LUAI_MAXCCALLS,
                    "C levels");
@@ -1378,9 +1378,9 @@ static int cond (LexState *ls)
     /* cond -> exp */
     expdesc v;
     expr(ls, &v);  /* read condition */
-    if (v.k == VNIL) v.k = VFALSE;  /* `falses' are all equal here */
+    if (v.kind == VNIL) v.kind = VFALSE;  /* `falses' are all equal here */
     luaK_goiftrue(ls->fs, &v);
-    return v.f;
+    return v.false_list;
 }
 
 
@@ -1618,7 +1618,7 @@ static void test_then_block (LexState *ls, int *escapelist)
     {
         luaK_goiffalse(ls->fs, &v);  /* will jump to label if condition is true */
         enterblock(fs, &bl, 0);  /* must enter block before 'goto' */
-        gotostat(ls, v.t);  /* handle goto/break */
+        gotostat(ls, v.true_list);  /* handle goto/break */
         skipnoopstat(ls);  /* skip other no-op statements */
         if (block_follow(ls, 0))    /* 'goto' is the entire block? */
         {
@@ -1632,7 +1632,7 @@ static void test_then_block (LexState *ls, int *escapelist)
     {
         luaK_goiftrue(ls->fs, &v);  /* skip over block if condition is false */
         enterblock(fs, &bl, 0);
-        jf = v.f;
+        jf = v.false_list;
     }
     statlist(ls);  /* `then' part */
     leaveblock(fs);
@@ -1686,7 +1686,7 @@ static void localstat (LexState *ls)
         nexps = explist(ls, &e);
     else
     {
-        e.k = VVOID;
+        e.kind = VVOID;
         nexps = 0;
     }
     adjust_assign(ls, nvars, nexps, &e);
@@ -1736,7 +1736,7 @@ static void exprstat (LexState *ls)
     }
     else    /* stat -> func */
     {
-        check_condition(ls, v.v.k == VCALL, "syntax error");
+        check_condition(ls, v.v.kind == VCALL, "syntax error");
         SETARG_C(getcode(fs, &v.v), 1);  /* call statement uses no results */
     }
 }
@@ -1753,10 +1753,10 @@ static void retstat (LexState *ls)
     else
     {
         nret = explist(ls, &e);  /* optional return values */
-        if (hasmultret(e.k))
+        if (hasmultret(e.kind))
         {
             luaK_setmultret(fs, &e);
-            if (e.k == VCALL && nret == 1)    /* tail call? */
+            if (e.kind == VCALL && nret == 1)    /* tail call? */
             {
                 SET_OPCODE(getcode(fs, &e), OP_TAILCALL);
                 lua_assert(GETARG_A(getcode(fs, &e)) == fs->nactvar);
