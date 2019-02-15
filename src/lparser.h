@@ -28,7 +28,9 @@ typedef enum
     VLOCAL,	//局部寄存器 /* info = local register */
     VUPVAL,   // upvalue /* info = index of upvalue in 'upvalues' */
     VINDEXED,	/* t = table register/upvalue; idx = index R/K */
-    VJMP,       //info存放的跳转地址 /* info = instruction pc */
+    /** 比较运算符(<,<=等)生成的跳转。*/
+    VJMP,       //info存放跳转地址 /* info = instruction pc */
+    /** 需要重新设定目标寄存器地址。*/
     VRELOCABLE,	/* info = instruction pc */
     VCALL,	/* info = instruction pc */
     VVARARG	/* info = instruction pc */

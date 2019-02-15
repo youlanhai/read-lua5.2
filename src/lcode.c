@@ -26,7 +26,7 @@
 #include "lvm.h"
 
 
-int hasjumps(expdesc* e)
+static int hasjumps(expdesc* e)
 {
     return e->true_list != e->false_list;
 }
@@ -62,7 +62,7 @@ void luaK_nil (FuncState *fs, int from, int n)
     luaK_codeABC(fs, OP_LOADNIL, from, n - 1, 0);  /* else no optimization */
 }
 
-/** 生成跳转指令。并连接到跳转链上。*/
+/** 生成无条件跳转指令。并连接到跳转链上。*/
 int luaK_jump (FuncState *fs)
 {
     // 将跳转链保存下来，防止指令生成过程被清空。
@@ -107,7 +107,7 @@ static void fixjump (FuncState *fs, int pc, int dest)
 }
 
 
-/*
+/** 返回当前指令位置(pc)，并且将其标记为跳转目标。
 ** returns current `pc' and marks it as a jump target (to avoid wrong
 ** optimizations with consecutive instructions not in the same basic block).
 */
@@ -140,7 +140,7 @@ static Instruction *getjumpcontrol (FuncState *fs, int pc)
 }
 
 
-/*
+/** 检查跳转链中是否有指令不产生值。
 ** check whether list has any jump that do not produce a value
 ** (or produce an inverted value)
 */
@@ -149,12 +149,15 @@ static int need_value (FuncState *fs, int list)
     for (; list != NO_JUMP; list = getjump(fs, list))
     {
         Instruction i = *getjumpcontrol(fs, list);
-        if (GET_OPCODE(i) != OP_TESTSET) return 1;
+        if (GET_OPCODE(i) != OP_TESTSET)
+            return 1;
     }
     return 0;  /* not found */
 }
 
 /** 给Test指令打补丁，设置目标寄存器（即存放比较结果的寄存器）。
+ *      注意区分：OP_TEST和OP_TESTSET指令。前者仅对表达式求值，后者在满足条件后，要将求得的结果写入目标寄存器。
+ *  前者用于if等条件判断语句中使用，后者用于赋值语句使用。
  *  @param node 跳转指令所在位置
  *  @param reg  目标寄存器
  *  @return 如果可以在尾部连接其他指令，就返回1。否则返回0.
@@ -172,7 +175,7 @@ static int patchtestreg (FuncState *fs, int node, int reg)
     }
     else
     {
-        // 如果没有要存放的值 或者 要存放的值就在目标寄存器里了。
+        // 如果不需要存结果 或者 要存放的值就在目标寄存器里，将OP_TESTSET指令修改为OP_TEST。
         // OP_TEST 指令只用到了A,C寄存器。A为条件变量所在的寄存器，C为要比较的值（0|1）
         /* no register to put value or register already has the value */
         *i = CREATE_ABC(OP_TEST, GETARG_B(*i), 0, GETARG_C(*i));
@@ -188,7 +191,7 @@ static void removevalues (FuncState *fs, int list)
         patchtestreg(fs, list, NO_REG);
 }
 
-/** 修正跳转链表。
+/** 修正跳转链表的辅助方法。
  *  @param list     链表头结点
  *  @param vtarget  跳转目标
  *  @param ret      目标寄存器（存放比较结果）
@@ -593,12 +596,15 @@ static void discharge2anyreg (FuncState *fs, expdesc *e)
     }
 }
 
-
+/** 给表达式分配寄存器，并且修正跳转地址。*/
 static void exp2reg (FuncState *fs, expdesc *e, int reg)
 {
+    // 分配寄存器
     discharge2reg(fs, e, reg);
+    // 如果是比较运算，则连接到true跳转链上
     if (e->kind == VJMP)
         luaK_concat(fs, &e->true_list, e->u.info);  /* put this jump in `t' list */
+    // 处理跳转链
     if (hasjumps(e))
     {
         int final;  /* position after whole expression */
@@ -611,6 +617,8 @@ static void exp2reg (FuncState *fs, expdesc *e, int reg)
             p_t = code_label(fs, reg, 1, 0);
             luaK_patchtohere(fs, fj);
         }
+        
+        // 将跳转链表都修正到当前指令位置
         final = luaK_getlabel(fs);
         patchlistaux(fs, e->false_list, final, reg, p_f);
         patchlistaux(fs, e->true_list, final, reg, p_t);
@@ -907,7 +915,7 @@ void luaK_indexed (FuncState *fs, expdesc *t, expdesc *k)
     t->kind = VINDEXED;
 }
 
-
+/** 编译期直接计算出常量表达式 */
 static int constfolding (OpCode op, expdesc *e1, expdesc *e2)
 {
     lua_Number r;
@@ -945,7 +953,9 @@ static void codearith (FuncState *fs, OpCode op,
     }
 }
 
-
+/** 为比较运算生成代码
+ *  @param cond OP_TEST要判断的条件(0|1)。如 < 和 >，是一对相反的指令，>可以看做not <，因此不需要为>专门定义指令了。
+ */
 static void codecomp (FuncState *fs, OpCode op, int cond, expdesc *e1,
                       expdesc *e2)
 {
@@ -965,7 +975,7 @@ static void codecomp (FuncState *fs, OpCode op, int cond, expdesc *e1,
     e1->kind = VJMP;
 }
 
-
+/** 修正前缀表达式。*/
 void luaK_prefix (FuncState *fs, UnOpr op, expdesc *e, int line)
 {
     expdesc e2;
